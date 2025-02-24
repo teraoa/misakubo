@@ -1,0 +1,4421 @@
+<!-- <!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js Edge Lights</title>
+</head>
+<body>
+    <script type="module" src="script.js"></script>
+</body>
+</html>
+
+////// 以下、写真を水面の揺らぎに変換
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2D Water Effect</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import { Water } from 'https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/objects/Water2.js';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 1, 10);
+        camera.position.z = 5;
+
+        const renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 現地写真のロード
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './OPENC-02.png'; // ← 現地写真のパスを設定
+        const imageTexture = textureLoader.load(imageURL);
+
+        // 水面シェーダー
+        const waterShader = new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                texture1: { value: imageTexture },
+                resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform sampler2D texture1;
+                varying vec2 vUv;
+
+                void main() {
+                    float wave = sin(vUv.y * 10.0 + time) * 0.005;
+                    vec2 distortedUV = vUv + vec2(wave, wave);
+                    vec4 color = texture2D(texture1, distortedUV);
+                    color.rgb *= vec3(0.8, 0.9, 1.0);
+                    gl_FragColor = color;
+                }
+            `
+        });
+
+        // 水面の描画
+        const waterPlane = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), waterShader);
+        scene.add(waterPlane);
+
+        // レンダリングループ
+        const animate = () => {
+            requestAnimationFrame(animate);
+            waterShader.uniforms.time.value += 0.02;
+            renderer.render(scene, camera);
+        };
+        animate();
+    </script>
+</body>
+</html>
+
+-->
+
+
+<!--  
+<!DOCTYPE html>
+ <html lang="en">
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>Abstract 2D Water Effect</title>
+     <script type="importmap">
+         {
+             "imports": {
+                 "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+             }
+         }
+     </script>
+ </head>
+ <body>
+     <script type="module">
+         import * as THREE from 'three';
+ 
+         // シーン、カメラ、レンダラーのセットアップ
+         const scene = new THREE.Scene();
+         const camera = new THREE.OrthographicCamera(-5, 5, 5, -5, 1, 10);
+         camera.position.z = 5;
+ 
+         const renderer = new THREE.WebGLRenderer();
+         renderer.setSize(window.innerWidth, window.innerHeight);
+         document.body.appendChild(renderer.domElement);
+ 
+         // 現地写真のロード
+         const textureLoader = new THREE.TextureLoader();
+         const imageURL = './IMG_7940.JPG'; // 現地写真のパス
+         const imageTexture = textureLoader.load(imageURL);
+ 
+         // エッジ検出 + 抽象的な水面シェーダー
+         const waterShader = new THREE.ShaderMaterial({
+             uniforms: {
+                 time: { value: 0 },
+                 texture1: { value: imageTexture },
+                 resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+             },
+             vertexShader: `
+                 varying vec2 vUv;
+                 void main() {
+                     vUv = uv;
+                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                 }
+             `,
+             fragmentShader: `
+                 uniform float time;
+                 uniform sampler2D texture1;
+                 varying vec2 vUv;
+ 
+                 // エッジ検出（Sobelフィルタ）
+                 float edgeDetection(vec2 uv) {
+                     float offset = 0.002;
+                     vec4 colX = texture2D(texture1, uv + vec2(-offset, 0.0)) - texture2D(texture1, uv + vec2(offset, 0.0));
+                     vec4 colY = texture2D(texture1, uv + vec2(0.0, -offset)) - texture2D(texture1, uv + vec2(0.0, offset));
+                     float edge = length(colX.rgb + colY.rgb);
+                     return edge;
+                 }
+ 
+                 void main() {
+                     // エッジ強度を取得（0～1）
+                     float edge = edgeDetection(vUv);
+ 
+                     // 水面の動き（エッジに沿って揺らぐ）
+                     float wave = sin(vUv.y * 10.0 + time + edge * 5.0) * 0.02;
+                     vec2 distortedUV = vUv + vec2(wave, wave);
+ 
+                     // 水の色をCG的に生成（エッジが強い部分ほど動きが大きく見える）
+                     float waterPattern = sin(distortedUV.x * 20.0 + time) * cos(distortedUV.y * 20.0 + time);
+                     vec3 waterColor = vec3(0.1, 0.4, 0.8) + waterPattern * 0.1;
+ 
+                     // エッジを強調して水の流れの模様を作る
+                     waterColor += edge * vec3(0.5, 0.7, 1.0);
+ 
+                     gl_FragColor = vec4(waterColor, 1.0);
+                 }
+             `
+         });
+ 
+         // 水面の描画
+         const waterPlane = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), waterShader);
+         scene.add(waterPlane);
+ 
+         // レンダリングループ
+         const animate = () => {
+             requestAnimationFrame(animate);
+             waterShader.uniforms.time.value += 0.02;
+             renderer.render(scene, camera);
+         };
+         animate();
+     </script>
+ </body>
+ </html> 
+ -->
+
+ <!--
+///水滴に反射　静止画
+
+ <!DOCTYPE html>
+ <html lang="en">
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>Water Droplets Effect</title>
+     <script type="importmap">
+         {
+             "imports": {
+                 "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+             }
+         }
+     </script>
+ </head>
+ <body>
+     <script type="module">
+         import * as THREE from 'three';
+ 
+         // シーン、カメラ、レンダラーのセットアップ
+         const scene = new THREE.Scene();
+         const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+         camera.position.set(0, 0, 5);
+ 
+         const renderer = new THREE.WebGLRenderer({ antialias: true });
+         renderer.setSize(window.innerWidth, window.innerHeight);
+         document.body.appendChild(renderer.domElement);
+ 
+         // 背景画像のロード
+         const textureLoader = new THREE.TextureLoader();
+         const imageURL = './IMG_7940.JPG';
+         const backgroundTexture = textureLoader.load(imageURL, (texture) => {
+             scene.background = texture;
+         });
+ 
+         // ✅ 水滴のシェーダーマテリアル
+         const waterDropletShader = new THREE.ShaderMaterial({
+             uniforms: {
+                 backgroundTexture: { value: backgroundTexture },
+                 time: { value: 0.0 }
+             },
+             vertexShader: `
+                 varying vec2 vUv;
+                 void main() {
+                     vUv = uv;
+                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                     gl_Position = projectionMatrix * mvPosition;
+                 }
+             `,
+             fragmentShader: `
+                 uniform sampler2D backgroundTexture;
+                 uniform float time;
+                 varying vec2 vUv;
+ 
+                 // 屈折エフェクト
+                 vec2 distortUV(vec2 uv, float strength) {
+                     float wave = sin(uv.y * 20.0 + time) * 0.005;
+                     return uv + vec2(wave, wave) * strength;
+                 }
+ 
+                 void main() {
+                     // 水滴の中の画像を歪ませる
+                     vec2 distortedUV = distortUV(vUv, 0.03);
+                     vec4 color = texture2D(backgroundTexture, distortedUV);
+ 
+                     // 水滴の輪郭をぼかす
+                     float edge = smoothstep(0.2, 0.4, abs(vUv.x - 0.5) + abs(vUv.y - 0.5));
+                     color.rgb += edge * 0.5; // エッジ部分を明るくする
+ 
+                     gl_FragColor = color;
+                 }
+             `,
+             transparent: true
+         });
+ 
+         // ✅ 水滴を作成
+         function createWaterDroplet(x, y, size) {
+             const geometry = new THREE.SphereGeometry(size, 32, 32);
+             const waterDroplet = new THREE.Mesh(geometry, waterDropletShader);
+             waterDroplet.position.set(x, y, 0);
+             scene.add(waterDroplet);
+         }
+ 
+         // ✅ 複数の水滴をランダムに配置
+         for (let i = 0; i < 15; i++) {
+             createWaterDroplet((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, Math.random() * 0.4 + 0.1);
+         }
+ 
+         // レンダリングループ
+         function animate() {
+             requestAnimationFrame(animate);
+             waterDropletShader.uniforms.time.value += 0.01;
+             renderer.render(scene, camera);
+         }
+         animate();
+     </script>
+ </body>
+ </html>
+ -->
+
+ <!--
+ ///水滴に反射2 静止画
+
+ <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Droplets Effect</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 背景画像のロード
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './IMG_7940.JPG';
+        const backgroundTexture = textureLoader.load(imageURL, (texture) => {
+            scene.background = texture;
+        });
+
+        // ✅ 水滴のシェーダーマテリアル
+        const waterDropletShader = new THREE.ShaderMaterial({
+            uniforms: {
+                backgroundTexture: { value: backgroundTexture },
+                time: { value: 0.0 },
+                randomRotation: { value: 0.0 },  // 水滴ごとの回転をランダムに
+                randomDistortion: { value: 0.02 } // 水滴ごとの歪みをランダムに
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D backgroundTexture;
+                uniform float time;
+                uniform float randomRotation;
+                uniform float randomDistortion;
+                varying vec2 vUv;
+
+                // ランダムな回転を適用する関数
+                vec2 rotateUV(vec2 uv, float angle) {
+                    float s = sin(angle);
+                    float c = cos(angle);
+                    mat2 rotationMatrix = mat2(c, -s, s, c);
+                    return (rotationMatrix * (uv - 0.5)) + 0.5;
+                }
+
+                // 屈折エフェクト
+                vec2 distortUV(vec2 uv, float strength) {
+                    float wave = sin(uv.y * 20.0 + time + randomRotation) * strength;
+                    return uv + vec2(wave, wave) * randomDistortion;
+                }
+
+                void main() {
+                    // 水滴の中の画像をランダムな角度に回転
+                    vec2 rotatedUV = rotateUV(vUv, randomRotation);
+                    // 水滴の内部画像を歪ませる
+                    vec2 distortedUV = distortUV(rotatedUV, 0.03);
+                    vec4 color = texture2D(backgroundTexture, distortedUV);
+
+                    // 水滴の輪郭をぼかす
+                    float edge = smoothstep(0.2, 0.4, abs(vUv.x - 0.5) + abs(vUv.y - 0.5));
+                    color.rgb += edge * 0.3; // エッジ部分を少し明るくする
+
+                    gl_FragColor = color;
+                }
+            `,
+            transparent: true
+        });
+
+        // ✅ 水滴を作成
+        function createWaterDroplet(x, y, size) {
+            const geometry = new THREE.SphereGeometry(size, 32, 32);
+            const material = waterDropletShader.clone(); // 各水滴に異なるパラメータを持たせる
+            material.uniforms.randomRotation = { value: Math.random() * Math.PI * 2 }; // 回転をランダムに
+            material.uniforms.randomDistortion = { value: Math.random() * 0.03 + 0.02 }; // 歪みをランダムに
+
+            const waterDroplet = new THREE.Mesh(geometry, material);
+            waterDroplet.position.set(x, y, 0);
+            scene.add(waterDroplet);
+        }
+
+        // ✅ 複数の水滴をランダムに配置（それぞれ異なる角度・歪み）
+        for (let i = 0; i < 50; i++) {
+            createWaterDroplet((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, Math.random() * 0.3 + 0.1);
+        }
+
+        // レンダリングループ
+        function animate() {
+            requestAnimationFrame(animate);
+            waterDropletShader.uniforms.time.value += 0.01;
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
+-->
+
+<!--
+///水滴に反射 動画　反射
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Water Droplets</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 背景画像のロード
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './IMG_7948.JPG';
+        const backgroundTexture = textureLoader.load(imageURL, (texture) => {
+            scene.background = texture;
+        });
+
+        // 水滴データ
+        let droplets = [];
+
+        // ✅ 水滴のシェーダーマテリアル
+        const waterDropletShader = new THREE.ShaderMaterial({
+            uniforms: {
+                backgroundTexture: { value: backgroundTexture },
+                time: { value: 0.0 },
+                dropletPosition: { value: new THREE.Vector2(0.0, 0.0) } // 各水滴の位置
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D backgroundTexture;
+                uniform float time;
+                uniform vec2 dropletPosition;
+                varying vec2 vUv;
+
+                // 屈折エフェクト
+                vec2 distortUV(vec2 uv, vec2 offset, float strength) {
+                    float wave = sin(uv.y * 20.0 + time) * 0.005;
+                    return uv + (offset - uv) * strength + vec2(wave, wave) * strength;
+                }
+
+                void main() {
+                    // 水滴の位置に応じたUV変換
+                    vec2 newUV = vUv + (dropletPosition * 0.1);
+                    
+                    // 背景の映り込みを動的に変化
+                    vec2 distortedUV = distortUV(newUV, dropletPosition, 0.05);
+                    vec4 color = texture2D(backgroundTexture, distortedUV);
+
+                    // 水滴の輪郭をぼかす
+                    float edge = smoothstep(0.2, 0.4, abs(vUv.x - 0.5) + abs(vUv.y - 0.5));
+                    color.rgb += edge * 0.3;
+
+                    gl_FragColor = color;
+                }
+            `,
+            transparent: true
+        });
+
+        // ✅ 水滴を作成
+        function createWaterDroplet(x, y, size) {
+            const geometry = new THREE.SphereGeometry(size, 64, 64);
+            const material = waterDropletShader.clone();
+            material.uniforms.dropletPosition = { value: new THREE.Vector2(x, y) }; // 各水滴に位置情報を与える
+
+            const waterDroplet = new THREE.Mesh(geometry, material);
+            waterDroplet.position.set(x, y, 0);
+
+            // ランダムな動きの初期化
+            waterDroplet.velocity = new THREE.Vector2(
+                (Math.random() - 0.5) * 0.01,
+                (Math.random() - 0.5) * 0.01
+            );
+            waterDroplet.originalSize = size;
+            droplets.push(waterDroplet);
+            scene.add(waterDroplet);
+        }
+
+        // ✅ 複数の水滴をランダムに配置
+        for (let i = 0; i < 18; i++) {
+            createWaterDroplet(
+                (Math.random() - 0.5) * 4, 
+                (Math.random() - 0.5) * 4, 
+                Math.random() * 0.6 + 0.2
+            );
+        }
+
+        // ✅ 水滴の動きと映り込みを更新するアニメーション
+        function updateDroplets() {
+            for (let i = 0; i < droplets.length; i++) {
+                let droplet = droplets[i];
+
+                // 位置の更新
+                droplet.position.x += droplet.velocity.x;
+                droplet.position.y += droplet.velocity.y;
+
+                // シェーダーに動的な位置を渡す（映り込みの更新）
+                droplet.material.uniforms.dropletPosition.value.set(droplet.position.x, droplet.position.y);
+
+                // 水滴のサイズを微振動させる
+                droplet.scale.setScalar(droplet.originalSize * (1 + 0.05 * Math.sin(performance.now() * 0.001)));
+
+                // 水滴同士の引き合い・反発
+                for (let j = i + 1; j < droplets.length; j++) {
+                    let other = droplets[j];
+                    let dx = other.position.x - droplet.position.x;
+                    let dy = other.position.y - droplet.position.y;
+                    let distance = Math.sqrt(dx * dx + dy * dy);
+
+                    if (distance < 0.5) {
+                        // 近すぎると少し離れる
+                        droplet.velocity.x -= dx * 0.0005;
+                        droplet.velocity.y -= dy * 0.0005;
+                        other.velocity.x += dx * 0.0005;
+                        other.velocity.y += dy * 0.0005;
+                    } else if (distance < 1.0) {
+                        // 適度な距離に引き寄せる
+                        droplet.velocity.x += dx * 0.0002;
+                        droplet.velocity.y += dy * 0.0002;
+                        other.velocity.x -= dx * 0.0002;
+                        other.velocity.y -= dy * 0.0002;
+                    }
+                }
+
+                // 速度のランダム変動
+                droplet.velocity.x += (Math.random() - 0.5) * 0.0005;
+                droplet.velocity.y += (Math.random() - 0.5) * 0.0005;
+                
+                // 画面端でバウンド
+                if (Math.abs(droplet.position.x) > 2) droplet.velocity.x *= -1;
+                if (Math.abs(droplet.position.y) > 2) droplet.velocity.y *= -1;
+            }
+        }
+
+        // ✅ アニメーションループ
+        function animate() {
+            requestAnimationFrame(animate);
+            waterDropletShader.uniforms.time.value += 0.01;
+            updateDroplets();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
+-->
+
+<!--
+///水滴に反射 動画　反射2
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiple Moving Water Droplets with Reflections</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // ✅ 背景画像のロード（削除せずそのまま表示）
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './IMG_7940.JPG';
+        const backgroundTexture = textureLoader.load(imageURL, (texture) => {
+            scene.background = texture;
+        });
+
+        // ✅ 水滴のシェーダーマテリアル（背景を反射＆屈折させる）
+        const waterDropletShader = new THREE.ShaderMaterial({
+            uniforms: {
+                backgroundTexture: { value: backgroundTexture },
+                time: { value: 0.0 },
+                dropletPosition: { value: new THREE.Vector2(0.0, 0.0) }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D backgroundTexture;
+                uniform float time;
+                uniform vec2 dropletPosition;
+                varying vec2 vUv;
+
+                // 水滴の内部に背景を屈折させる
+                vec2 distortUV(vec2 uv, vec2 offset, float strength) {
+                    float wave = sin(uv.y * 20.0 + time) * 0.005;
+                    return uv + (offset - uv) * strength + vec2(wave, wave) * strength;
+                }
+
+                void main() {
+                    vec2 distortedUV = distortUV(vUv, dropletPosition, 0.05);
+                    vec4 color = texture2D(backgroundTexture, distortedUV);
+
+                    // 水滴の輪郭をぼかす
+                    float edge = smoothstep(0.2, 0.4, abs(vUv.x - 0.5) + abs(vUv.y - 0.5));
+                    color.rgb += edge * 0.3;
+
+                    gl_FragColor = color;
+                }
+            `,
+            transparent: true
+        });
+
+        // ✅ 複数の水滴を作成
+        let droplets = [];
+        function createWaterDroplet(x, y, size) {
+            const geometry = new THREE.SphereGeometry(size, 32, 32);
+            const material = waterDropletShader.clone();
+            material.uniforms.dropletPosition = { value: new THREE.Vector2(x, y) };
+
+            const droplet = new THREE.Mesh(geometry, material);
+            droplet.position.set(x, y, 0);
+
+            droplet.velocity = new THREE.Vector2(
+                (Math.random() - 0.5) * 0.02,
+                (Math.random() - 0.5) * 0.02
+            );
+            droplet.timeOffset = Math.random() * 10; // ランダムな時間オフセットで動きをずらす
+            droplets.push(droplet);
+            scene.add(droplet);
+        }
+
+        // 水滴をランダムに配置
+        for (let i = 0; i < 16; i++) {
+            createWaterDroplet((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, Math.random() * 0.3 + 0.1);
+        }
+
+        // ✅ アニメーションループ（曲線的なランダムな動き）
+        let globalTime = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            globalTime += 0.01;
+
+            for (let droplet of droplets) {
+                let t = globalTime + droplet.timeOffset;
+                droplet.position.x = Math.sin(t * 0.5) * 2 + Math.sin(t * 0.3) * 1.5;
+                droplet.position.y = Math.cos(t * 0.4) * 2 + Math.sin(t * 0.7) * 1.2;
+
+                droplet.material.uniforms.dropletPosition.value.set(droplet.position.x, droplet.position.y);
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
+-->
+
+<!--///水滴に反射 動画　反射3
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Droplets with Darker Background</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace; // ✅ WebGLのsRGB変換を適用
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // ✅ 背景画像を暗めにするための設定
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './IMG_7948.JPG';
+        const backgroundTexture = textureLoader.load(imageURL, (texture) => {
+            texture.colorSpace = THREE.SRGBColorSpace; // ✅ 明るさ補正
+        });
+
+        // ✅ 背景を PlaneGeometry に適用し、暗めのトーンに調整
+        const backgroundMaterial = new THREE.MeshBasicMaterial({
+            map: backgroundTexture,
+            opacity: 0.5,  // ✅ 背景を少し暗めにする（値を 0.5 〜 1.0 で調整可能）
+            transparent: true
+        });
+
+        const backgroundPlane = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), backgroundMaterial);
+        backgroundPlane.position.set(0, 0, -1); // 水滴の奥に配置
+        scene.add(backgroundPlane);
+
+        // ✅ 水滴のシェーダーマテリアル（内部の反射を明るくする）
+        const waterDropletShader = new THREE.ShaderMaterial({
+            uniforms: {
+                backgroundTexture: { value: backgroundTexture },
+                dropletPosition: { value: new THREE.Vector2(0.0, 0.0) },
+                time: { value: 0.0 }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D backgroundTexture;
+                uniform vec2 dropletPosition;
+                uniform float time;
+                varying vec2 vUv;
+
+                // 水滴の内部の反射を歪ませる
+                vec2 distortUV(vec2 uv, vec2 offset, float strength) {
+                    float wave = sin(time + uv.x * 10.0) * 0.02;
+                    return uv + (offset - uv) * strength + vec2(wave, wave);
+                }
+
+                void main() {
+                    // 背景画像のUVを取得し、内部を屈折させる
+                    vec2 distortedUV = distortUV(vUv, dropletPosition, 0.08);
+                    vec4 color = texture2D(backgroundTexture, distortedUV);
+
+                    // ✅ 水滴の内部の反射を白っぽく明るくする
+                    color.rgb = mix(color.rgb, vec3(1.0), 0.1); // 10% 白に寄せる
+
+                    // ✅ エッジ部分を少し強調（透明感の表現）
+                    float edge = smoothstep(0.3, 0.5, length(vUv - vec2(0.5, 0.5)));
+                    color.rgb += edge * 0.2;
+
+                    gl_FragColor = color;
+                }
+            `,
+            transparent: true
+        });
+
+        // ✅ 複数の水滴を作成
+        let droplets = [];
+        function createWaterDroplet(x, y, size) {
+            const geometry = new THREE.SphereGeometry(size, 32, 32);
+            const material = waterDropletShader.clone();
+            material.uniforms.dropletPosition = { value: new THREE.Vector2(x, y) };
+
+            const droplet = new THREE.Mesh(geometry, material);
+            droplet.position.set(x, y, 0);
+
+            droplet.timeOffset = Math.random() * 10; // 個別の動きを持たせる
+            droplets.push(droplet);
+            scene.add(droplet);
+        }
+
+        // 水滴をランダムに配置
+        for (let i = 0; i < 30; i++) {
+            createWaterDroplet((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4, Math.random() * 0.3 + 0.1);
+        }
+
+        // ✅ アニメーションループ（曲線的なランダムな動き）
+        let globalTime = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            globalTime += 0.01;
+
+            for (let droplet of droplets) {
+                let t = globalTime + droplet.timeOffset;
+                droplet.position.x = Math.sin(t * 0.5) * 2 + Math.sin(t * 0.3) * 1.5;
+                droplet.position.y = Math.cos(t * 0.4) * 2 + Math.sin(t * 0.7) * 1.2;
+
+                // ✅ 水滴のサイズを時間とともに変化（呼吸するような動き）
+                droplet.scale.setScalar(1.2 + 0.2 * Math.sin(globalTime * 2));
+
+                // 水滴のシェーダーに動的な位置を渡す
+                droplet.material.uniforms.dropletPosition.value.set(droplet.position.x, droplet.position.y);
+                droplet.material.uniforms.time.value = globalTime;
+            }
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
+-->
+
+
+<!--浮遊
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Water Droplets (Bounded & Color Fixed)</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // ✅ 背景画像の適用
+        const textureLoader = new THREE.TextureLoader();
+        const imageURL = './IMG_7940.JPG';
+        const backgroundTexture = textureLoader.load(imageURL);
+        
+        const backgroundMaterial = new THREE.MeshBasicMaterial({ map: backgroundTexture });
+        const backgroundPlane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), backgroundMaterial);
+        backgroundPlane.position.set(0, 0, -1);
+        scene.add(backgroundPlane);
+
+        // ✅ 背景写真の範囲を取得
+        const boundX = backgroundPlane.geometry.parameters.width / 2 - 0.5;  // ✅ 水滴がはみ出さないように調整
+        const boundY = backgroundPlane.geometry.parameters.height / 2 - 0.5;
+
+        // ✅ 水滴のシェーダーマテリアル（動的な歪み & 色変化）
+        const waterDropletShader = new THREE.ShaderMaterial({
+            uniforms: {
+                backgroundTexture: { value: backgroundTexture },
+                dropletPosition: { value: new THREE.Vector2(0.0, 0.0) },
+                time: { value: 0.0 },
+                distortionStrength: { value: 0.08 },
+                dropletColor: { value: new THREE.Color() }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform sampler2D backgroundTexture;
+                uniform vec2 dropletPosition;
+                uniform float time;
+                uniform float distortionStrength;
+                uniform vec3 dropletColor;
+                varying vec2 vUv;
+
+                // 水滴の内部の反射を歪ませる
+                vec2 distortUV(vec2 uv, vec2 offset, float strength) {
+                    float wave = sin(time * 5.0 + uv.x * 15.0) * strength;
+                    return uv + (offset - uv) * strength + vec2(wave, wave);
+                }
+
+                void main() {
+                    // 背景画像のUVを取得し、内部を屈折させる
+                    vec2 distortedUV = distortUV(vUv, dropletPosition, distortionStrength);
+                    vec4 color = texture2D(backgroundTexture, distortedUV);
+
+                    // ✅ 水滴の色を適用
+                    color.rgb = mix(color.rgb, dropletColor, 0.5);
+
+                    // ✅ 水滴の輪郭をにじませる
+                    float edge = smoothstep(0.4, 0.6, length(vUv - vec2(0.5, 0.5)));
+                    color.a = mix(1.0, 0.0, edge); // 外側を透明に
+
+                    gl_FragColor = color;
+                }
+            `,
+            transparent: true
+        });
+
+        // ✅ 水滴を作成（範囲内に収める & 色を修正）
+        let droplets = [];
+        function createWaterDroplet(x, y, size, index) {
+            const geometry = new THREE.SphereGeometry(size, 32, 32);
+            const material = waterDropletShader.clone();
+            material.uniforms.dropletPosition = { value: new THREE.Vector2(x, y) };
+            
+            // ✅ ランダムな明るい色（黒にならないように）
+            material.uniforms.dropletColor.value = new THREE.Color(
+                //0.5 + Math.random() * 0.5, 
+                //0.5 + Math.random() * 0.5, 
+                //0.5 + Math.random() * 0.5
+                Math.random(), 
+                Math.random(), 
+                Math.random()
+
+
+            );
+
+            const droplet = new THREE.Mesh(geometry, material);
+            droplet.position.set(x, y, 0);
+
+            // ✅ ゆっくり浮く動き
+            droplet.velocity = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.005, 
+                (Math.random() - 0.5) * 0.005, 
+                0
+            );
+            droplet.index = index;
+
+            droplets.push(droplet);
+            scene.add(droplet);
+        }
+
+        // ✅ 水滴をランダムに配置（背景写真の範囲内に制限）
+        for (let i = 0; i < 100; i++) {
+            createWaterDroplet((Math.random() - 0.5) * boundX * 1.5, (Math.random() - 0.5) * boundY * 1.5, Math.random() * 0.3 + 0.1, i);
+        }
+
+        // ✅ アニメーションループ（範囲制限 & 浮遊感を最優先）
+        let globalTime = 0;
+        function animate() {
+            requestAnimationFrame(animate);
+            globalTime += 0.01;
+
+            droplets.forEach((droplet) => {
+                let pos = droplet.position;
+                let vel = droplet.velocity;
+
+                // ✅ 画面端での跳ね返り（はみ出し補正）
+                if (pos.x > boundX) { pos.x = boundX; vel.x *= -0.8; }
+                if (pos.x < -boundX) { pos.x = -boundX; vel.x *= -0.8; }
+                if (pos.y > boundY) { pos.y = boundY; vel.y *= -0.8; }
+                if (pos.y < -boundY) { pos.y = -boundY; vel.y *= -0.8; }
+
+                pos.add(vel);
+
+                // ✅ ゆっくり減速し、滑らかに動く
+                // vel.multiplyScalar(0.998);
+
+                // ✅ シェーダーの位置情報を更新
+                droplet.material.uniforms.dropletPosition.value.set(pos.x, pos.y);
+                droplet.material.uniforms.time.value = globalTime;
+            });
+
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>
+-->
+
+<!--　プレート反射　モノクロ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Floating Reflective Plates</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 背景画像をロードしてモノクロ化
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('./IMG_7948.JPG', (texture) => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = texture.image.width;
+            canvas.height = texture.image.height;
+            ctx.drawImage(texture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // 背景の適用
+            const backgroundMaterial = new THREE.MeshBasicMaterial({ map: grayscaleTexture });
+            const backgroundPlane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), backgroundMaterial);
+            backgroundPlane.position.set(0, 0, -1);
+            scene.add(backgroundPlane);
+
+            // 環境マップの作成（反射用）
+            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(512, { format: THREE.RGBAFormat });
+            const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+            scene.add(cubeCamera);
+
+            // 反射用の物理マテリアル（光沢を強化）
+            const reflectiveMaterial = new THREE.MeshPhysicalMaterial({
+                envMap: cubeRenderTarget.texture, // 背景画像を反射
+                metalness: 0.9,
+                roughness: 0.05, // 少しだけ粗さを入れる
+                clearcoat: 1.0,  // 反射を強化
+                clearcoatRoughness: 0.02,
+                envMapIntensity: 1.2 // 反射を強調
+            });
+
+            // プレートの作成
+            let plates = [];
+            function createReflectivePlate(x, y, size, index) {
+                const geometry = new THREE.PlaneGeometry(size, size);
+                const material = reflectiveMaterial.clone();
+                const plate = new THREE.Mesh(geometry, material);
+
+                plate.position.set(x, y, 0);
+                plate.rotation.y = Math.random() * Math.PI * 2;
+                plate.rotation.x = Math.random() * Math.PI * 2;
+                plate.velocity = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.01,
+                    (Math.random() - 0.5) * 0.01,
+                    0
+                );
+                plate.index = index;
+
+                plates.push(plate);
+                scene.add(plate);
+            }
+
+            // 背景の範囲に制限してプレートを配置
+            const boundX = backgroundPlane.geometry.parameters.width / 2 - 0.5;
+            const boundY = backgroundPlane.geometry.parameters.height / 2 - 0.5;
+
+            for (let i = 0; i < 100; i++) {
+                createReflectivePlate(
+                    (Math.random() - 0.5) * boundX * 1.5,
+                    (Math.random() - 0.5) * boundY * 1.5,
+                    Math.random() * 0.3 + 0.1,
+                    i
+                );
+            }
+
+            // アニメーションループ
+            let globalTime = 0;
+            function animate() {
+                requestAnimationFrame(animate);
+                globalTime += 0.01;
+
+                plates.forEach((plate) => {
+                    let pos = plate.position;
+                    let vel = plate.velocity;
+
+                    // 画面端での跳ね返り
+                    if (pos.x > boundX) { pos.x = boundX; vel.x *= -1; }
+                    if (pos.x < -boundX) { pos.x = -boundX; vel.x *= -1; }
+                    if (pos.y > boundY) { pos.y = boundY; vel.y *= -1; }
+                    if (pos.y < -boundY) { pos.y = -boundY; vel.y *= -1; }
+
+                    pos.add(vel);
+                    plate.rotation.x += 0.01;
+                    plate.rotation.y += 0.01;
+                });
+
+                // プレートの反射をリアルタイム更新
+                cubeCamera.update(renderer, scene);
+
+                renderer.render(scene, camera);
+            }
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--　プレート1枚反射カラー　背景モノクロ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Square Plate with Monochrome Background</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 画像の読み込み
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('./IMG_7940.JPG', (originalTexture) => {
+            const imgWidth = originalTexture.image.width;
+            const imgHeight = originalTexture.image.height;
+            const aspectRatio = imgWidth / imgHeight;
+
+            // 🎨 **背景をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imgWidth;
+            canvas.height = imgHeight;
+            ctx.drawImage(originalTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景サイズを画面内に収める**
+            const bgScale = Math.min(window.innerWidth / imgWidth, window.innerHeight / imgHeight);
+            const bgGeometry = new THREE.PlaneGeometry(imgWidth * bgScale * 0.01, imgHeight * bgScale * 0.01);
+
+            // **モノクロ背景を作成**
+            const backgroundMaterial = new THREE.MeshBasicMaterial({ map: grayscaleTexture });
+            const backgroundPlane = new THREE.Mesh(bgGeometry, backgroundMaterial);
+            backgroundPlane.position.set(0, 0, -2);
+            scene.add(backgroundPlane);
+
+            // **反射用のCubeCamera**
+            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(512, { format: THREE.RGBAFormat });
+            const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+            scene.add(cubeCamera);
+
+            // **プレートの反射をカラーのみにするため、一時的にシーン背景をカラー画像に変更**
+            function updateReflection() {
+                const originalBackground = scene.background;
+                scene.background = originalTexture; // 一時的にカラー背景を設定
+                backgroundPlane.visible = false; // モノクロ背景を一時的に隠す
+                cubeCamera.update(renderer, scene); // カラー背景のみをキャプチャ
+                backgroundPlane.visible = true; // モノクロ背景を再表示
+                scene.background = originalBackground; // 元のモノクロ背景に戻す
+            }
+
+            // 🎨 **プレートの反射をカラーにする**
+            const reflectiveMaterial = new THREE.MeshPhysicalMaterial({
+                envMap: cubeRenderTarget.texture,
+                metalness: 1.0, 
+                roughness: 0.05, 
+                reflectivity: 1.0, 
+                clearcoat: 1.0,  
+                clearcoatRoughness: 0.02,
+                envMapIntensity: 1.5
+            });
+
+            // **プレートのサイズを正方形に**
+            const plateSize = bgScale * 5; // 画面サイズに適したスケール
+            const plateGeometry = new THREE.PlaneGeometry(plateSize, plateSize);
+            const plate = new THREE.Mesh(plateGeometry, reflectiveMaterial);
+            plate.position.set(0, 0, -0.5);
+            scene.add(plate);
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // **プレートのゆるやかな回転**
+                plate.rotation.x += 0.005;
+                plate.rotation.y += 0.005;
+
+                // **プレートの反射をリアルタイム更新**
+                updateReflection();
+
+                renderer.render(scene, camera);
+            }
+
+            // **初回キャプチャ**
+            updateReflection();
+            renderer.render(scene, camera);
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--立方体6面反射
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Cube with Monochrome Background</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 画像の読み込み
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('./IMG_7948.JPG', (originalTexture) => {
+            const imgWidth = originalTexture.image.width;
+            const imgHeight = originalTexture.image.height;
+            const aspectRatio = imgWidth / imgHeight;
+
+            // 🎨 **背景をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imgWidth;
+            canvas.height = imgHeight;
+            ctx.drawImage(originalTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景サイズを画面内に収める**
+            const bgScale = Math.min(window.innerWidth / imgWidth, window.innerHeight / imgHeight);
+            const bgGeometry = new THREE.PlaneGeometry(imgWidth * bgScale * 0.01, imgHeight * bgScale * 0.01);
+
+            // **モノクロ背景を作成**
+            const backgroundMaterial = new THREE.MeshBasicMaterial({ map: grayscaleTexture });
+            const backgroundPlane = new THREE.Mesh(bgGeometry, backgroundMaterial);
+            backgroundPlane.position.set(0, 0, -2);
+            scene.add(backgroundPlane);
+
+            // **反射用のCubeCamera**
+            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(1024, { format: THREE.RGBAFormat });
+            const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+            scene.add(cubeCamera);
+
+            // **立方体のサイズ**
+            const cubeSize = bgScale * 5;
+            const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+
+            // **立方体の反射を適用**
+            const reflectiveMaterial = new THREE.MeshPhysicalMaterial({
+                metalness: 0.8,
+                roughness: 0,
+                reflectivity: 1.0,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.02,
+                envMapIntensity: 1.2,
+                side: THREE.DoubleSide
+            });
+
+            const cube = new THREE.Mesh(cubeGeometry, reflectiveMaterial);
+            cube.position.set(0, 0, 0);
+            scene.add(cube);
+
+            // **立方体の反射を確実に適用**
+            function updateReflection() {
+                scene.background = originalTexture;  // カラー背景に変更
+                backgroundPlane.visible = false;     // モノクロ背景を隠す
+                cube.visible = false;                // 立方体を一時的に隠す
+                cubeCamera.update(renderer, scene);  // 環境マップを更新
+                cube.material.envMap = cubeRenderTarget.texture; // 反射を適用
+                cube.material.needsUpdate = true;    // マテリアルを更新
+                cube.visible = true;                 // 立方体を再表示
+                scene.background = null;             // 背景を元に戻す
+                backgroundPlane.visible = true;      // モノクロ背景を再表示
+            }
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                cube.rotation.x += 0.005;
+                cube.rotation.y += 0.005;
+
+                updateReflection();
+
+                renderer.render(scene, camera);
+            }
+
+            updateReflection();
+            renderer.render(scene, camera);
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--立方体反射6面　
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Cube with Sharp Reflections</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 画像の読み込み
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('./IMG_7940.JPG', (originalTexture) => {
+            const imgWidth = originalTexture.image.width;
+            const imgHeight = originalTexture.image.height;
+            const aspectRatio = imgWidth / imgHeight;
+
+            // 🎨 **背景をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imgWidth;
+            canvas.height = imgHeight;
+            ctx.drawImage(originalTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景サイズを画面内に収める**
+            const bgScale = Math.min(window.innerWidth / imgWidth, window.innerHeight / imgHeight);
+            const bgGeometry = new THREE.PlaneGeometry(imgWidth * bgScale * 0.01, imgHeight * bgScale * 0.01);
+
+            // **モノクロ背景を作成**
+            const backgroundMaterial = new THREE.MeshBasicMaterial({ map: grayscaleTexture });
+            const backgroundPlane = new THREE.Mesh(bgGeometry, backgroundMaterial);
+            backgroundPlane.position.set(0, 0, -2);
+            scene.add(backgroundPlane);
+
+            // **反射用のCubeCamera**
+            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(2048, { format: THREE.RGBAFormat });
+            const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+            scene.add(cubeCamera);
+
+            // **立方体のサイズ**
+            const cubeSize = bgScale * 5;
+            const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+
+            // **立方体の反射を適用**
+            const reflectiveMaterial = new THREE.MeshPhysicalMaterial({
+                metalness: 1.0,
+                roughness: 0.0, // シャープな反射のため 0 にする
+                reflectivity: 1.0,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.0, // クリアな反射のため 0 にする
+                envMapIntensity: 2.0, // 反射を強調
+                side: THREE.DoubleSide
+            });
+
+            const cube = new THREE.Mesh(cubeGeometry, reflectiveMaterial);
+            cube.position.set(0, 0, 0);
+            scene.add(cube);
+
+            // **立方体の反射を確実に適用**
+            function updateReflection() {
+                scene.background = originalTexture;  // カラー背景に変更
+                backgroundPlane.visible = false;     // モノクロ背景を隠す
+                cube.visible = false;                // 立方体を一時的に隠す
+                cubeCamera.update(renderer, scene);  // 環境マップを更新
+                cube.material.envMap = cubeRenderTarget.texture; // 反射を適用
+                cube.material.needsUpdate = true;    // マテリアルを更新
+                cube.visible = true;                 // 立方体を再表示
+                scene.background = null;             // 背景を元に戻す
+                backgroundPlane.visible = true;      // モノクロ背景を再表示
+            }
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                cube.rotation.x += 0.005;
+                cube.rotation.y += 0.005;
+
+                updateReflection();
+
+                renderer.render(scene, camera);
+            }
+
+            updateReflection();
+            renderer.render(scene, camera);
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!-- 立方体落下
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rolling and Reflective Fractal Cubes</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // シーン、カメラ、レンダラーのセットアップ
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 5, 12);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 画像の読み込み
+        const textureLoader = new THREE.TextureLoader();
+        textureLoader.load('./IMG_7940.JPG', (originalTexture) => {
+            const imgWidth = originalTexture.image.width;
+            const imgHeight = originalTexture.image.height;
+
+            // **背景をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imgWidth;
+            canvas.height = imgHeight;
+            ctx.drawImage(originalTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景を設定**
+            scene.background = grayscaleTexture;
+
+            // **反射用のCubeCamera**
+            const cubeRenderTarget = new THREE.WebGLCubeRenderTarget(2048, { format: THREE.RGBAFormat });
+            const cubeCamera = new THREE.CubeCamera(0.1, 100, cubeRenderTarget);
+            scene.add(cubeCamera);
+
+            // **立方体のマテリアル**
+            const createMaterial = () => new THREE.MeshPhysicalMaterial({
+                metalness: 1.0,
+                roughness: 0.1,
+                reflectivity: 1.0,
+                clearcoat: 1.0,
+                clearcoatRoughness: 0.1,
+                envMapIntensity: 2.0,
+                side: THREE.DoubleSide
+            });
+
+            // **立方体クラス**
+            class RollingCube {
+                constructor(size, position, velocity, angularVelocity) {
+                    this.size = size;
+                    this.mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), createMaterial());
+                    this.mesh.position.copy(position);
+                    scene.add(this.mesh);
+
+                    this.velocity = velocity;
+                    this.angularVelocity = angularVelocity;
+                    this.split = false;
+                }
+
+                update() {
+                    if (this.mesh.position.y > 0) {
+                        this.velocity.y -= 0.002; // 重力
+                        this.mesh.position.add(this.velocity);
+                        this.mesh.rotation.x += this.angularVelocity.x;
+                        this.mesh.rotation.y += this.angularVelocity.y;
+                        this.mesh.rotation.z += this.angularVelocity.z;
+                    } else {
+                        if (!this.split && this.size > 0.3) {
+                            this.split = true;
+                            this.splitCube();
+                        }
+
+                        // **転がる動きを再現**
+                        this.velocity.x *= 0.98;
+                        this.velocity.z *= 0.98;
+                        this.angularVelocity.multiplyScalar(0.98);
+
+                        if (this.velocity.length() < 0.01 && this.angularVelocity.length() < 0.01) {
+                            this.velocity.set(0, 0, 0);
+                            this.angularVelocity.set(0, 0, 0);
+                            this.snapToGround();
+                        }
+                    }
+                }
+
+                splitCube() {
+                    for (let i = 0; i < 4; i++) {
+                        const offset = new THREE.Vector3(
+                            (Math.random() - 0.5) * this.size,
+                            0.1,
+                            (Math.random() - 0.5) * this.size
+                        );
+                        const newCube = new RollingCube(
+                            this.size * 0.5,
+                            this.mesh.position.clone().add(offset),
+                            new THREE.Vector3(
+                                (Math.random() - 0.5) * 0.1,
+                                Math.random() * 0.1 + 0.05,
+                                (Math.random() - 0.5) * 0.1
+                            ),
+                            new THREE.Vector3(
+                                (Math.random() - 0.5) * 0.1,
+                                (Math.random() - 0.5) * 0.1,
+                                (Math.random() - 0.5) * 0.1
+                            )
+                        );
+                        cubes.push(newCube);
+                    }
+                }
+
+                snapToGround() {
+                    this.mesh.rotation.x = Math.round(this.mesh.rotation.x / (Math.PI / 2)) * (Math.PI / 2);
+                    this.mesh.rotation.y = Math.round(this.mesh.rotation.y / (Math.PI / 2)) * (Math.PI / 2);
+                    this.mesh.rotation.z = Math.round(this.mesh.rotation.z / (Math.PI / 2)) * (Math.PI / 2);
+                }
+            }
+
+            let cubes = [];
+            cubes.push(new RollingCube(
+                1.0,
+                new THREE.Vector3(0, 8, 0),
+                new THREE.Vector3(0, -0.05, 0),
+                new THREE.Vector3(0.05, 0.03, 0.02)
+            ));
+
+            function updateReflection() {
+                cubes.forEach(cube => cube.mesh.visible = false);
+                cubeCamera.update(renderer, scene);
+                cubes.forEach(cube => {
+                    cube.mesh.visible = true;
+                    cube.mesh.material.envMap = cubeRenderTarget.texture;
+                    cube.mesh.material.needsUpdate = true;
+                });
+            }
+
+            function animate() {
+                requestAnimationFrame(animate);
+                cubes.forEach(cube => cube.update());
+                updateReflection();
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー　球体反射
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Sphere with Color Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **背景テクスチャをロード**
+        textureLoader.load('./abstract_image1.png', (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **モノクロ化した背景用の CanvasTexture を作成**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **法線マップ（球体の曲面の影響を再現するため）**
+            const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+            normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+            // **シェーダーマテリアルを作成**
+            const refractiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    backgroundTexture: { value: backgroundTexture }, // **カラー反射用**
+                    grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景用**
+                    normalMap: { value: normalMap },
+                    refractionStrength: { value: 0.03 }, // **屈折の強さ**
+                    brightness: { value: 1.5 }, // **明るさ補正**
+                    uCameraPosition: { value: camera.position } // **カメラの位置**
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D backgroundTexture; // カラー反射用
+                    uniform sampler2D grayscaleTexture;  // モノクロ背景用
+                    uniform sampler2D normalMap;
+                    uniform float refractionStrength;
+                    uniform float brightness;
+                    uniform vec3 uCameraPosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        // **法線マップを適用**
+                        vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                        vec3 normal = normalize(vNormal + normalColor * 0.2);
+
+                        // **視点方向と法線の計算**
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                        // **反射用テクスチャをカラーで取得**
+                        vec2 refractedUV = vUv + refractDir.xy * 0.1;
+                        vec4 reflectionColor = texture2D(backgroundTexture, refractedUV);
+
+                        // **明るさ補正**
+                        reflectionColor.rgb *= brightness;
+
+                        // **最終カラーを適用**
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                transparent: true
+            });
+
+            // **球体を作成**
+            const sphereGeometry = new THREE.SphereGeometry(1, 128, 128);
+            const sphere = new THREE.Mesh(sphereGeometry, refractiveShader);
+            scene.add(sphere);
+
+            // **照明を追加（環境光）**
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // **回転速度を設定**
+            let rotationSpeedX = 0.005;
+            let rotationSpeedY = 0.007;
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // **球体を回転**
+                sphere.rotation.x += rotationSpeedX;
+                sphere.rotation.y += rotationSpeedY;
+
+                // **カメラ位置を球の回転に応じて更新**
+                refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー　立方体反射
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Cube with Color Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **背景テクスチャをロード**
+        textureLoader.load('./abstract_image1.png', (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **モノクロ化した背景用の CanvasTexture を作成**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **法線マップ（立方体の表面の変化を再現するため）**
+            const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+            normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+            // **シェーダーマテリアルを作成**
+            const refractiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    backgroundTexture: { value: backgroundTexture }, // **カラー反射用**
+                    grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景用**
+                    normalMap: { value: normalMap },
+                    refractionStrength: { value: 0.05 }, // **立方体なので屈折を強めに**
+                    brightness: { value: 1.8 }, // **明るさ補正**
+                    uCameraPosition: { value: camera.position } // **カメラの位置**
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D backgroundTexture; // カラー反射用
+                    uniform sampler2D grayscaleTexture;  // モノクロ背景用
+                    uniform sampler2D normalMap;
+                    uniform float refractionStrength;
+                    uniform float brightness;
+                    uniform vec3 uCameraPosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        // **法線マップを適用**
+                        vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                        vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                        // **視点方向と法線の計算**
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                        // **反射用テクスチャをカラーで取得**
+                        vec2 refractedUV = vUv + refractDir.xy * 0.15;
+                        vec4 reflectionColor = texture2D(backgroundTexture, refractedUV);
+
+                        // **明るさ補正**
+                        reflectionColor.rgb *= brightness;
+
+                        // **最終カラーを適用**
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                transparent: true
+            });
+
+            // **立方体を作成**
+            const cubeGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5, 64, 64, 64); // 分割数を増やしてなめらかに
+            const cube = new THREE.Mesh(cubeGeometry, refractiveShader);
+            scene.add(cube);
+
+            // **照明を追加（環境光）**
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // **回転速度を設定**
+            let rotationSpeedX = 0.005;
+            let rotationSpeedY = 0.007;
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // **立方体を回転**
+                cube.rotation.x += rotationSpeedX;
+                cube.rotation.y += rotationSpeedY;
+
+                // **カメラ位置を立方体の回転に応じて更新**
+                refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+
+<!--八面体　反射
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Octahedron with Color Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **背景テクスチャをロード**
+        textureLoader.load('./abstract_image_pastel.png', (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **モノクロ化した背景用の CanvasTexture を作成**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **法線マップ**
+            const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+            normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+            // **シェーダーマテリアルを作成**
+            const refractiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    backgroundTexture: { value: backgroundTexture },
+                    grayscaleTexture: { value: grayscaleTexture },
+                    normalMap: { value: normalMap },
+                    refractionStrength: { value: 0.08 }, // **屈折を強くする**
+                    brightness: { value: 2.0 }, // **明るさ補正**
+                    uCameraPosition: { value: camera.position }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D backgroundTexture;
+                    uniform sampler2D grayscaleTexture;
+                    uniform sampler2D normalMap;
+                    uniform float refractionStrength;
+                    uniform float brightness;
+                    uniform vec3 uCameraPosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                        vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                        vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                        vec4 reflectionColor = texture2D(backgroundTexture, refractedUV);
+
+                        reflectionColor.rgb *= brightness;
+
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                transparent: true
+            });
+
+            const octahedron = new THREE.Mesh(new THREE.OctahedronGeometry(1.5, 1), refractiveShader);
+            scene.add(octahedron);
+
+            function animate() {
+                requestAnimationFrame(animate);
+                octahedron.rotation.x += 0.005;
+                octahedron.rotation.y += 0.007;
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+    </script>
+</body>
+</html>
+-->
+
+
+<!--シェーダー　プレート（固定、厚み0）
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Reflective Plane</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **背景テクスチャをロード**
+        textureLoader.load('./abstract_image2.png', (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **モノクロ化した背景用の CanvasTexture を作成**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **法線マップ**
+            const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+            normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+            // **シェーダーマテリアルを作成**
+            const refractiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    backgroundTexture: { value: backgroundTexture },
+                    grayscaleTexture: { value: grayscaleTexture },
+                    normalMap: { value: normalMap },
+                    refractionStrength: { value: 0.05 },
+                    brightness: { value: 1.8 },
+                    uCameraPosition: { value: camera.position },
+                    uPlanePosition: { value: new THREE.Vector3() }  // **プレートの位置をシェーダーに渡す**
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D backgroundTexture;
+                    uniform sampler2D grayscaleTexture;
+                    uniform sampler2D normalMap;
+                    uniform float refractionStrength;
+                    uniform float brightness;
+                    uniform vec3 uCameraPosition;
+                    uniform vec3 uPlanePosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        vec3 normalColor = texture2D(normalMap, vUv * 3.0).rgb * 2.0 - 1.0;
+                        vec3 normal = normalize(vNormal + normalColor * 0.15);
+
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                        // **プレートの位置に応じて動的な反射を適用**
+                        vec2 refractedUV = vUv + refractDir.xy * 0.08 + (uPlanePosition.xy * 0.05);
+                        vec4 reflectionColor = texture2D(backgroundTexture, refractedUV);
+
+                        reflectionColor.rgb *= brightness;
+
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                transparent: true
+            });
+
+            // **プレート (平面) を作成**
+            const planeGeometry = new THREE.PlaneGeometry(3, 3, 64, 64);
+            const plane = new THREE.Mesh(planeGeometry, refractiveShader);
+            plane.position.set(0, 0, 0);
+            scene.add(plane);
+
+            // **照明を追加（環境光）**
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // **回転速度を設定**
+            let rotationSpeedX = 0.003;
+            let rotationSpeedY = 0.004;
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // **プレートを回転**
+                plane.rotation.x += rotationSpeedX;
+                plane.rotation.y += rotationSpeedY;
+
+                // **プレートの位置をシェーダーに渡す**
+                refractiveShader.uniforms.uPlanePosition.value.copy(plane.position);
+
+                // **カメラ位置をプレートの回転に応じて更新**
+                refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--正方形プレート
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Thick Plate</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **背景テクスチャをロード**
+        textureLoader.load('./abstract_water_style.png', (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **モノクロ化した背景用の CanvasTexture を作成**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **反射マテリアルのシェーダー**
+            const reflectiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    backgroundTexture: { value: backgroundTexture },
+                    uCameraPosition: { value: camera.position }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+                    
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D backgroundTexture;
+                    uniform vec3 uCameraPosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        // **カメラからプレート表面の反射方向を計算**
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 reflectDir = reflect(viewDir, normalize(vNormal));
+
+                        // **反射をUVマッピング**
+                        vec2 reflectedUV = vUv + reflectDir.xy * 0.2;
+                        vec4 reflectionColor = texture2D(backgroundTexture, reflectedUV);
+
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                side: THREE.DoubleSide, // **表裏両面に反射を適用**
+                transparent: true
+            });
+
+            // **厚みのあるプレートを作成**
+            const plateGeometry = new THREE.BoxGeometry(2, 2, 0.1); // **厚み 0.1 を追加**
+            const plate = new THREE.Mesh(plateGeometry, reflectiveShader);
+            plate.position.set(0, 0, 0);
+            scene.add(plate);
+
+            // **照明を追加（環境光）**
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // **回転速度を設定**
+            let rotationSpeedX = 0.005;
+            let rotationSpeedY = 0.008;
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+
+                // **プレートを回転**
+                plate.rotation.x += rotationSpeedX;
+                plate.rotation.y += rotationSpeedY;
+
+                // **カメラ位置をプレートの回転に応じて更新**
+                reflectiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー球体　インプット画像2つ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Sphere with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7948.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_autumn_style_fixed.png';  // **球体の反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **球体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（球体の曲面の影響を再現するため）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **球体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.03 }, // **屈折の強さ**
+                        brightness: { value: 1.5 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **球体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.2);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.1;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **球体を作成**
+                const sphereGeometry = new THREE.SphereGeometry(1, 128, 128);
+                const sphere = new THREE.Mesh(sphereGeometry, refractiveShader);
+                scene.add(sphere);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **球体を回転**
+                    sphere.rotation.x += rotationSpeedX;
+                    sphere.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を球の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+
+<!--シェーダー立方体　インプット画像2つ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Cube with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7948.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_water_style.png';  // **立方体の反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **立方体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（立方体のエッジの影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **立方体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.05 }, // **屈折の強さ（立方体はエッジがあるため増加）**
+                        brightness: { value: 1.5 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **立方体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.15;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **立方体を作成**
+                const cubeGeometry = new THREE.BoxGeometry(1.5, 1.5, 1.5);
+                const cube = new THREE.Mesh(cubeGeometry, refractiveShader);
+                scene.add(cube);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **立方体を回転**
+                    cube.rotation.x += rotationSpeedX;
+                    cube.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を立方体の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー4面体 TetrahedronGeometryで細分化　インプット画像2つ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rounded Tetrahedron with Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js",
+                "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7948.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **四面体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（エッジの丸みを適用）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **四面体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.07 }, // **屈折の強さ（丸みの影響を強調）**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **四面体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **四面体を作成し、丸みを持たせる**
+                let tetrahedronGeometry = new THREE.TetrahedronGeometry(1.5, 2); // 細分化レベル 2 で丸みを持たせる
+                tetrahedronGeometry.computeVertexNormals(); // 頂点法線を再計算
+
+                const tetrahedron = new THREE.Mesh(tetrahedronGeometry, refractiveShader);
+                scene.add(tetrahedron);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.006;
+                let rotationSpeedY = 0.009;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **四面体を回転**
+                    tetrahedron.rotation.x += rotationSpeedX;
+                    tetrahedron.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を四面体の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー8面体 TetrahedronGeometryで細分化　インプット画像2つ
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Octahedron with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7948.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **八面体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（八面体の面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **八面体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.06 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **八面体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **八面体を作成**
+                const octahedronGeometry = new THREE.OctahedronGeometry(1.5, 2); // `0` は分割数
+                const octahedron = new THREE.Mesh(octahedronGeometry, refractiveShader);
+                scene.add(octahedron);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **八面体を回転**
+                    octahedron.rotation.x += rotationSpeedX;
+                    octahedron.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を八面体の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー12面体 TetrahedronGeometryで細分化　インプット画像2つ
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Dodecahedron with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **十二面体の反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **十二面体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（十二面体の面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **十二面体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.05 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **十二面体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **十二面体を作成**
+                const dodecahedronGeometry = new THREE.DodecahedronGeometry(1.5, 0); // `0` は分割数
+                const dodecahedron = new THREE.Mesh(dodecahedronGeometry, refractiveShader);
+                scene.add(dodecahedron);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **十二面体を回転**
+                    dodecahedron.rotation.x += rotationSpeedX;
+                    dodecahedron.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を十二面体の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--20面体
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Icosahedron with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_water_style.png';  // **二十面体の反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **二十面体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **二十面体の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.05 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **二十面体の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **二十面体を作成**
+                const icosahedronGeometry = new THREE.IcosahedronGeometry(1.5, 1); // `0` は分割数
+                const icosahedron = new THREE.Mesh(icosahedronGeometry, refractiveShader);
+                scene.add(icosahedron);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **二十面体を回転**
+                    icosahedron.rotation.x += rotationSpeedX;
+                    icosahedron.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を二十面体の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--円柱
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Cylinder with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **円柱の反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **円柱の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（円柱の表面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **円柱の反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.04 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **円柱の反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **円柱を作成**
+                const cylinderGeometry = new THREE.CylinderGeometry(1, 1, 2, 32); // `32` は円周の分割数（滑らかさ調整）
+                const cylinder = new THREE.Mesh(cylinderGeometry, refractiveShader);
+                scene.add(cylinder);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **円柱を回転**
+                    cylinder.rotation.x += rotationSpeedX;
+                    cylinder.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置を円柱の回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--トーラス
+// 形を滑らかにしたい場合は TorusGeometry(1.2, 0.4, 64, 128) に変更可能
+// 細長いトーラス (TorusGeometry(1.5, 0.2, 64, 128))
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Torus with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **トーラスの反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **トーラスの反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（表面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **トーラスの反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.03 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **トーラスの反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **トーラスを作成**
+                const torusGeometry = new THREE.TorusGeometry(1.2, 0.4, 32, 64); // `32` 分割 & `64` チューブ分割
+                const torus = new THREE.Mesh(torusGeometry, refractiveShader);
+                scene.add(torus);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **トーラスを回転**
+                    torus.rotation.x += rotationSpeedX;
+                    torus.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置をトーラスの回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--トーラスノット
+TorusKnotGeometry(外半径, 内半径, チューブ分割, 円周分割, p, q)
+p と q は 結び目のねじれ具合
+より複雑な形にするには p=3, q=5
+形を変えたい場合は TorusKnotGeometry(1.2, 0.4, 128, 32, 3, 7) などに変更-->
+<!--
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Torus Knot with Separate Background & Reflection</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **トーラスノットの反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **トーラスノットの反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（表面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **トーラスノットの反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.02 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **トーラスノットの反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **トーラスノットを作成**
+                // const torusKnotGeometry = new THREE.TorusKnotGeometry(0.8, 0.3, 128, 32, 2, 3);
+                const torusKnotGeometry = new THREE.TorusKnotGeometry(0.8, 0.3, 128, 32, 3, 7);
+                const torusKnot = new THREE.Mesh(torusKnotGeometry, refractiveShader);
+                scene.add(torusKnot);
+
+                // **照明を追加（環境光）**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **回転速度を設定**
+                let rotationSpeedX = 0.005;
+                let rotationSpeedY = 0.007;
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **トーラスノットを回転**
+                    torusKnot.rotation.x += rotationSpeedX;
+                    torusKnot.rotation.y += rotationSpeedY;
+
+                    // **カメラ位置をトーラスノットの回転に応じて更新**
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--GLBデータ読み込み
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reflective Blender Model with BufferGeometry</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js",
+                "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@latest/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 2, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7940.JPG';  // **背景画像**
+        const reflectionImagePath = './abstract_image1.png';  // **3Dモデルの反射画像**
+
+        // **背景と反射画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **背景画像をモノクロ化**
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = backgroundTexture.image.width;
+            canvas.height = backgroundTexture.image.height;
+            ctx.drawImage(backgroundTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            const grayscaleTexture = new THREE.CanvasTexture(canvas);
+
+            // **背景をモノクロに設定**
+            scene.background = grayscaleTexture;
+
+            // **3Dモデルの反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ（表面の影響を再現）**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture }, // **3Dモデルの反射画像**
+                        grayscaleTexture: { value: grayscaleTexture },  // **モノクロ背景**
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.02 }, // **屈折の強さ**
+                        brightness: { value: 1.6 }, // **明るさ補正**
+                        uCameraPosition: { value: camera.position } // **カメラの位置**
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture; // **3Dモデルの反射用画像**
+                        uniform sampler2D grayscaleTexture;  // **背景画像（モノクロ）**
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            // **法線マップを適用**
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.3);
+
+                            // **視点方向と法線の計算**
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            // **反射用テクスチャをカラーで取得**
+                            vec2 refractedUV = vUv + refractDir.xy * 0.2;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            // **明るさ補正**
+                            reflectionColor.rgb *= brightness;
+
+                            // **最終カラーを適用**
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **Blenderで作成した3Dデータ（GLB/GLTF）をロード**
+                const loader = new GLTFLoader();
+                loader.load('./model5.glb', (gltf) => {
+                    const model = gltf.scene;
+
+                    // **モデルの BufferGeometry に変更**
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            child.geometry = new THREE.BufferGeometry().copy(child.geometry);
+                            child.geometry.computeVertexNormals();
+                            child.material = refractiveShader;
+                        }
+                    });
+
+                    // **モデルをシーンに追加**
+                    scene.add(model);
+                    model.position.set(0, 2, 0);
+
+                    // **回転速度を設定**
+                    let rotationSpeedX = 0.005;
+                    let rotationSpeedY = 0.007;
+
+                    // **アニメーションループ**
+                    function animate() {
+                        requestAnimationFrame(animate);
+
+                        // **モデルを回転**
+                        model.rotation.x += rotationSpeedX;
+                        model.rotation.y += rotationSpeedY;
+
+                        // **カメラ位置をモデルの回転に応じて更新**
+                        refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                        renderer.render(scene, camera);
+                    }
+
+                    animate();
+                });
+            });
+        });
+
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダー球体　位置ランダム
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Sphere with Monochrome Background</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7948.JPG';
+        const reflectionImagePath = './abstract_water_style.png';
+
+        // **背景をモノクロに変換**
+        function convertToGrayscale(imageTexture) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imageTexture.image.width;
+            canvas.height = imageTexture.image.height;
+            ctx.drawImage(imageTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // **ランダムな球体の位置を決定**
+        function getRandomPosition() {
+            let insideScreen = Math.random() < 0.8;
+            let x, y, z;
+            
+            if (insideScreen) {
+                x = (Math.random() - 0.5) * 3;
+                y = (Math.random() - 0.5) * 3;
+                z = -2.5 + Math.random() * 4;
+            } else {
+                x = (Math.random() - 0.5) * 6;
+                y = (Math.random() - 0.5) * 6;
+                z = -4.5 + Math.random() * 7.5;
+            }
+
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // **ランダムな回転速度を設定**
+        function getRandomRotationSpeed() {
+            return (Math.random() - 0.5) * 0.02;
+        }
+
+        // **背景画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+            
+            // **背景をモノクロ化**
+            const grayscaleTexture = convertToGrayscale(backgroundTexture);
+            scene.background = grayscaleTexture;
+
+            // **球体の反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture },
+                        grayscaleTexture: { value: grayscaleTexture },
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.03 },
+                        brightness: { value: 1.5 },
+                        uCameraPosition: { value: camera.position }
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture;
+                        uniform sampler2D grayscaleTexture;
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.2);
+
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            vec2 refractedUV = vUv + refractDir.xy * 0.1;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            reflectionColor.rgb *= brightness;
+
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **球体を作成**
+                const sphereGeometry = new THREE.SphereGeometry(1, 128, 128);
+                const sphere = new THREE.Mesh(sphereGeometry, refractiveShader);
+
+                // **ランダムな位置と回転速度を設定**
+                sphere.position.copy(getRandomPosition());
+                let rotationSpeedX = getRandomRotationSpeed();
+                let rotationSpeedY = getRandomRotationSpeed();
+                scene.add(sphere);
+
+                // **照明を追加**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **球体の回転**
+                    sphere.rotation.x += rotationSpeedX;
+                    sphere.rotation.y += rotationSpeedY;
+
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+    </script>
+</body>
+</html>
+-->
+
+<!--シェーダープレート　位置ランダム-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Refractive Plate with Monochrome Background</title>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@latest/build/three.module.min.js"
+            }
+        }
+    </script>
+</head>
+<body>
+    <script type="module">
+        import * as THREE from 'three';
+
+        // **シーン、カメラ、レンダラーのセットアップ**
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(0, 0, 5);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const textureLoader = new THREE.TextureLoader();
+
+        // **画像ファイルを指定**
+        const backgroundImagePath = './IMG_7964.JPG';
+        const reflectionImagePath = './abstract_night_style_2.png';
+
+        // **背景をモノクロに変換**
+        function convertToGrayscale(imageTexture) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = imageTexture.image.width;
+            canvas.height = imageTexture.image.height;
+            ctx.drawImage(imageTexture.image, 0, 0);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < imageData.data.length; i += 4) {
+                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
+                imageData.data[i] = gray;
+                imageData.data[i + 1] = gray;
+                imageData.data[i + 2] = gray;
+            }
+            ctx.putImageData(imageData, 0, 0);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        // **ランダムなプレートの位置を決定**
+        function getRandomPosition() {
+            let insideScreen = Math.random() < 0.8;
+            let x, y, z;
+            
+            if (insideScreen) {
+                x = (Math.random() - 0.5) * 3;
+                y = (Math.random() - 0.5) * 3;
+                z = -2.5 + Math.random() * 4;
+            } else {
+                x = (Math.random() - 0.5) * 6;
+                y = (Math.random() - 0.5) * 6;
+                z = -4.5 + Math.random() * 7.5;
+            }
+
+            return new THREE.Vector3(x, y, z);
+        }
+
+        // **ランダムな回転速度を設定**
+        function getRandomRotationSpeed() {
+            return (Math.random() - 0.5) * 0.02;
+        }
+
+        // **背景画像をロード**
+        textureLoader.load(backgroundImagePath, (backgroundTexture) => {
+            backgroundTexture.colorSpace = THREE.SRGBColorSpace;
+            
+            // **背景をモノクロ化**
+            const grayscaleTexture = convertToGrayscale(backgroundTexture);
+            scene.background = grayscaleTexture;
+
+            // **プレートの反射用画像をロード**
+            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+                // **法線マップ**
+                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+                // **シェーダーマテリアルを作成**
+                const refractiveShader = new THREE.ShaderMaterial({
+                    uniforms: {
+                        reflectionTexture: { value: reflectionTexture },
+                        grayscaleTexture: { value: grayscaleTexture },
+                        normalMap: { value: normalMap },
+                        refractionStrength: { value: 0.03 },
+                        brightness: { value: 1.5 },
+                        uCameraPosition: { value: camera.position }
+                    },
+                    vertexShader: `
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+                        
+                        void main() {
+                            vNormal = normalize(normalMatrix * normal);
+                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                            vUv = uv;
+                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                        }
+                    `,
+                    fragmentShader: `
+                        uniform sampler2D reflectionTexture;
+                        uniform sampler2D grayscaleTexture;
+                        uniform sampler2D normalMap;
+                        uniform float refractionStrength;
+                        uniform float brightness;
+                        uniform vec3 uCameraPosition;
+                        varying vec3 vNormal;
+                        varying vec3 vViewPosition;
+                        varying vec2 vUv;
+
+                        void main() {
+                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                            vec3 normal = normalize(vNormal + normalColor * 0.2);
+
+                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                            vec2 refractedUV = vUv + refractDir.xy * 0.1;
+                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                            reflectionColor.rgb *= brightness;
+
+                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                        }
+                    `,
+                    transparent: true
+                });
+
+                // **正方形プレート（BoxGeometry）を作成**
+                const plateGeometry = new THREE.BoxGeometry(2, 2, 0.1); // **厚みを0.1にして薄く**
+                const plate = new THREE.Mesh(plateGeometry, refractiveShader);
+
+                // **ランダムな位置と回転速度を設定**
+                plate.position.copy(getRandomPosition());
+                let rotationSpeedX = getRandomRotationSpeed();
+                let rotationSpeedY = getRandomRotationSpeed();
+                scene.add(plate);
+
+                // **照明を追加**
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+                directionalLight.position.set(5, 5, 5);
+                scene.add(directionalLight);
+
+                // **アニメーションループ**
+                function animate() {
+                    requestAnimationFrame(animate);
+
+                    // **プレートの回転**
+                    plate.rotation.x += rotationSpeedX;
+                    plate.rotation.y += rotationSpeedY;
+
+                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+
+                    renderer.render(scene, camera);
+                }
+
+                animate();
+            });
+        });
+    </script>
+</body>
+</html>
