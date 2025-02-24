@@ -34,165 +34,151 @@
         const backgroundImagePath = `assets/images/${background}`;
         const reflectionImagePath = `assets/images/${reflection}`;
 
-        // **背景をモノクロに変換**
-        function convertToGrayscale(imageTexture) {
-            const canvas = document.createElement('canvas');
-            const ctx = canvas.getContext('2d');
-            canvas.width = imageTexture.image.width;
-            canvas.height = imageTexture.image.height;
-            ctx.drawImage(imageTexture.image, 0, 0);
-
-            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-            for (let i = 0; i < imageData.data.length; i += 4) {
-                let gray = 0.299 * imageData.data[i] + 0.587 * imageData.data[i + 1] + 0.114 * imageData.data[i + 2];
-                imageData.data[i] = gray;
-                imageData.data[i + 1] = gray;
-                imageData.data[i + 2] = gray;
-            }
-            ctx.putImageData(imageData, 0, 0);
-            return new THREE.CanvasTexture(canvas);
-        }
-
-        // **ランダムなプレートの位置を決定**
-        function getRandomPosition() {
-            let insideScreen = Math.random() < 0.8;
-            let x, y, z;
-            
-            if (insideScreen) {
-                x = (Math.random() - 0.5) * 3;
-                y = (Math.random() - 0.5) * 3;
-                z = -2.5 + Math.random() * 4;
-            } else {
-                x = (Math.random() - 0.5) * 6;
-                y = (Math.random() - 0.5) * 6;
-                z = -4.5 + Math.random() * 7.5;
-            }
-
-            return new THREE.Vector3(x, y, z);
-        }
-
-        // **ランダムな回転速度を設定**
-        function getRandomRotationSpeed() {
-            return (Math.random() - 0.5) * 0.02;
-        }
+        let backgroundMesh;
 
         // **背景画像をロード**
         textureLoader.load(backgroundImagePath, (backgroundTexture) => {
             backgroundTexture.colorSpace = THREE.SRGBColorSpace;
-            
-            // **背景をモノクロ化**
-            const grayscaleTexture = convertToGrayscale(backgroundTexture);
-            scene.background = grayscaleTexture;
 
-            // **プレートの反射用画像をロード**
-            textureLoader.load(reflectionImagePath, (reflectionTexture) => {
-                reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+            // **オリジナルの縦横比を取得**
+            const aspectRatio = backgroundTexture.image.width / backgroundTexture.image.height;
 
-                // **法線マップ**
-                const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
-                normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+            // **画面のアスペクト比に合わせたスケール計算**
+            const screenAspect = window.innerWidth / window.innerHeight;
+            let width, height;
+            if (aspectRatio > screenAspect) {
+                width = 1.5 * screenAspect;
+                height = 1.5;
+            } else {
+                width = 1.5;
+                height = 1.5 / screenAspect;
+            }
 
-                // **シェーダーマテリアルを作成**
-                const refractiveShader = new THREE.ShaderMaterial({
-                    uniforms: {
-                        reflectionTexture: { value: reflectionTexture },
-                        grayscaleTexture: { value: grayscaleTexture },
-                        normalMap: { value: normalMap },
-                        refractionStrength: { value: 0.03 },
-                        brightness: { value: 1.5 },
-                        uCameraPosition: { value: camera.position }
-                    },
-                    vertexShader: `
-                        varying vec3 vNormal;
-                        varying vec3 vViewPosition;
-                        varying vec2 vUv;
-                        
-                        void main() {
-                            vNormal = normalize(normalMatrix * normal);
-                            vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
-                            vUv = uv;
-                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                        }
-                    `,
-                    fragmentShader: `
-                        uniform sampler2D reflectionTexture;
-                        uniform sampler2D grayscaleTexture;
-                        uniform sampler2D normalMap;
-                        uniform float refractionStrength;
-                        uniform float brightness;
-                        uniform vec3 uCameraPosition;
-                        varying vec3 vNormal;
-                        varying vec3 vViewPosition;
-                        varying vec2 vUv;
-
-                        void main() {
-                            vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
-                            vec3 normal = normalize(vNormal + normalColor * 0.2);
-
-                            vec3 viewDir = normalize(uCameraPosition - vViewPosition);
-                            vec3 refractDir = refract(viewDir, normal, refractionStrength);
-
-                            vec2 refractedUV = vUv + refractDir.xy * 0.1;
-                            vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
-
-                            reflectionColor.rgb *= brightness;
-
-                            gl_FragColor = vec4(reflectionColor.rgb, 1.0);
-                        }
-                    `,
-                    transparent: true
-                });
-
-                // **正方形プレート（BoxGeometry）を作成**
-                const plateGeometry = new THREE.BoxGeometry(2, 2, 0.1);
-                const plate = new THREE.Mesh(plateGeometry, refractiveShader);
-
-                // **ランダムな位置と回転速度を設定**
-                plate.position.copy(getRandomPosition());
-                let rotationSpeedX = getRandomRotationSpeed();
-                let rotationSpeedY = getRandomRotationSpeed();
-                scene.add(plate);
-
-                // **照明を追加**
-                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-                scene.add(ambientLight);
-
-                const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
-                directionalLight.position.set(5, 5, 5);
-                scene.add(directionalLight);
-
-                // **アニメーションループ**
-                function animate() {
-                    requestAnimationFrame(animate);
-                    plate.rotation.x += rotationSpeedX;
-                    plate.rotation.y += rotationSpeedY;
-                    refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
-                    renderer.render(scene, camera);
-                }
-
-                animate();
-            });
+            // **背景用のPlaneGeometry**
+            const backgroundGeometry = new THREE.PlaneGeometry(width * 2, height * 2);
+            const backgroundMaterial = new THREE.MeshBasicMaterial({ map: backgroundTexture, depthWrite: false });
+            backgroundMesh = new THREE.Mesh(backgroundGeometry, backgroundMaterial);
+            backgroundMesh.position.z = -5;  // カメラより奥に配置
+            scene.add(backgroundMesh);
         });
+
+        // **プレートの反射用画像をロード**
+        textureLoader.load(reflectionImagePath, (reflectionTexture) => {
+            reflectionTexture.colorSpace = THREE.SRGBColorSpace;
+
+            // **法線マップ**
+            const normalMap = textureLoader.load('https://threejs.org/examples/textures/waternormals.jpg');
+            normalMap.wrapS = normalMap.wrapT = THREE.RepeatWrapping;
+
+            // **シェーダーマテリアルを作成**
+            const refractiveShader = new THREE.ShaderMaterial({
+                uniforms: {
+                    reflectionTexture: { value: reflectionTexture },
+                    normalMap: { value: normalMap },
+                    refractionStrength: { value: 0.03 },
+                    brightness: { value: 1.5 },
+                    uCameraPosition: { value: camera.position }
+                },
+                vertexShader: `
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        vNormal = normalize(normalMatrix * normal);
+                        vViewPosition = (modelViewMatrix * vec4(position, 1.0)).xyz;
+                        vUv = uv;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    uniform sampler2D reflectionTexture;
+                    uniform sampler2D normalMap;
+                    uniform float refractionStrength;
+                    uniform float brightness;
+                    uniform vec3 uCameraPosition;
+                    varying vec3 vNormal;
+                    varying vec3 vViewPosition;
+                    varying vec2 vUv;
+
+                    void main() {
+                        vec3 normalColor = texture2D(normalMap, vUv * 2.0).rgb * 2.0 - 1.0;
+                        vec3 normal = normalize(vNormal + normalColor * 0.2);
+
+                        vec3 viewDir = normalize(uCameraPosition - vViewPosition);
+                        vec3 refractDir = refract(viewDir, normal, refractionStrength);
+
+                        vec2 refractedUV = vUv + refractDir.xy * 0.1;
+                        vec4 reflectionColor = texture2D(reflectionTexture, refractedUV);
+
+                        reflectionColor.rgb *= brightness;
+
+                        gl_FragColor = vec4(reflectionColor.rgb, 1.0);
+                    }
+                `,
+                transparent: true
+            });
+
+            // **正方形プレート（BoxGeometry）を作成**
+            const plateGeometry = new THREE.BoxGeometry(2, 2, 0.1);
+            const plate = new THREE.Mesh(plateGeometry, refractiveShader);
+
+            // **ランダムな位置を設定**
+            plate.position.set((Math.random() - 0.5) * 3, (Math.random() - 0.5) * 3, -2);
+            scene.add(plate);
+
+            // **照明を追加**
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+            directionalLight.position.set(5, 5, 5);
+            scene.add(directionalLight);
+
+            // **アニメーションループ**
+            function animate() {
+                requestAnimationFrame(animate);
+                plate.rotation.x += 0.01;
+                plate.rotation.y += 0.01;
+                refractiveShader.uniforms.uCameraPosition.value.copy(camera.position);
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        });
+
+        // **ウィンドウサイズ変更時の対応**
+        window.addEventListener('resize', () => {
+            const newAspect = window.innerWidth / window.innerHeight;
+            camera.aspect = newAspect;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+
+            if (backgroundMesh) {
+                let width, height;
+                if (backgroundMesh.material.map.image) {
+                    const imgAspect = backgroundMesh.material.map.image.width / backgroundMesh.material.map.image.height;
+                    if (imgAspect > newAspect) {
+                        width = 1.5 * newAspect;
+                        height = 1.5;
+                    } else {
+                        width = 1.5;
+                        height = 1.5 / newAspect;
+                    }
+                    backgroundMesh.scale.set(width * 2, height * 2, 1);
+                }
+            }
+        });
+
     </script>
 
-    <h1>Misakubo Sample</h1>
+    <h1>Dynamic Background Scaling</h1>
     <ul>
         <li><a href="?bg=imgA.JPG&ref=refA1.png">Scene A1</a></li>
         <li><a href="?bg=imgA.JPG&ref=refA2.png">Scene A2</a></li>
-        <li><a href="?bg=imgA.JPG&ref=refA3.png">Scene A3</a></li>
-        <li><a href="?bg=imgA.JPG&ref=refA4.png">Scene A4</a></li>
         <li><a href="?bg=imgB.JPG&ref=refB1.png">Scene B1</a></li>
-        <li><a href="?bg=imgB.JPG&ref=refB2.png">Scene B2</a></li>
-        <li><a href="?bg=imgB.JPG&ref=refB3.png">Scene B3</a></li>
-        <li><a href="?bg=imgB.JPG&ref=refB4.png">Scene B4</a></li>
         <li><a href="?bg=imgC.JPG&ref=refC1.png">Scene C1</a></li>
-        <li><a href="?bg=imgC.JPG&ref=refC2.png">Scene C2</a></li>
-        <li><a href="?bg=imgC.JPG&ref=refC3.png">Scene C3</a></li>
-        <li><a href="?bg=imgC.JPG&ref=refC4.png">Scene C4</a></li>
         <li><a href="?bg=imgD.JPG&ref=refD1.png">Scene D1</a></li>
-        <li><a href="?bg=imgD.JPG&ref=refD2.png">Scene D2</a></li>
-        <li><a href="?bg=imgD.JPG&ref=refD3.png">Scene D3</a></li>
-        <li><a href="?bg=imgD.JPG&ref=refD4.png">Scene D4</a></li>
     </ul>
 </body>
 </html>
